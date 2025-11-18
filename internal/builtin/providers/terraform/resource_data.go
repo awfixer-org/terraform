@@ -19,12 +19,56 @@ func dataStoreResourceSchema() providers.Schema {
 	return providers.Schema{
 		Body: &configschema.Block{
 			Attributes: map[string]*configschema.Attribute{
-				"input":            {Type: cty.DynamicPseudoType, Optional: true},
-				"output":           {Type: cty.DynamicPseudoType, Computed: true},
+				"id": {Type: cty.String, Computed: true},
+
+				// forces replacement of the entire resource when changed
 				"triggers_replace": {Type: cty.DynamicPseudoType, Optional: true},
-				"id":               {Type: cty.String, Computed: true},
+
+				// input is reflected in output after apply, and changes to
+				// input always result in a re-computation of output.
+				"input":  {Type: cty.DynamicPseudoType, Optional: true},
+				"output": {Type: cty.DynamicPseudoType, Computed: true},
+
+				"sensitive": {
+					NestedType: &configschema.Object{
+						Attributes: map[string]*configschema.Attribute{
+							// sensitive input and output work just like the top
+							// level input and output, but otherwise are marked
+							// as sensitive.
+							"input":  {Type: cty.DynamicPseudoType, Optional: true, Sensitive: true},
+							"output": {Type: cty.DynamicPseudoType, Computed: true, Sensitive: true},
+						},
+						Nesting: configschema.NestingGroup,
+					},
+					Optional: true,
+				},
+
+				"write_only": {
+					NestedType: &configschema.Object{
+						Attributes: map[string]*configschema.Attribute{
+							// The input attribute will be exposed as a stable
+							// value in write_only.output.
+							"input":  {Type: cty.DynamicPseudoType, Optional: true, WriteOnly: true},
+							"output": {Type: cty.DynamicPseudoType, Computed: true},
+
+							// If there is a version value, a change in that
+							// value will trigger a change in the stored
+							// write-only.output value. If there is no version
+							// value, then input will be compared directly
+							// against output.
+							"version": {Type: cty.DynamicPseudoType, Optional: true},
+
+							// replace causes the resource to be replaced when
+							// there is going to be a change to the output value.
+							"replace": {Type: cty.Bool, Optional: true},
+						},
+						Nesting: configschema.NestingGroup,
+					},
+					Optional: true,
+				},
 			},
 		},
+
 		Identity: dataStoreResourceIdentitySchema().Body,
 	}
 }
@@ -61,8 +105,13 @@ func validateDataStoreResourceConfig(req providers.ValidateResourceConfigRequest
 }
 
 func upgradeDataStoreResourceState(req providers.UpgradeResourceStateRequest) (resp providers.UpgradeResourceStateResponse) {
-	ty := dataStoreResourceSchema().Body.ImpliedType()
-	val, err := ctyjson.Unmarshal(req.RawStateJSON, ty)
+	val, err := ctyjson.Unmarshal(req.RawStateJSON, cty.DynamicPseudoType)
+	if err != nil {
+		resp.Diagnostics = resp.Diagnostics.Append(err)
+		return resp
+	}
+
+	val, err = dataStoreResourceSchema().Body.CoerceValue(val)
 	if err != nil {
 		resp.Diagnostics = resp.Diagnostics.Append(err)
 		return resp
@@ -79,6 +128,7 @@ func upgradeDataStoreResourceIdentity(providers.UpgradeResourceIdentityRequest) 
 
 func readDataStoreResourceState(req providers.ReadResourceRequest) (resp providers.ReadResourceResponse) {
 	resp.NewState = req.PriorState
+	resp.Private = req.Private
 	return resp
 }
 
@@ -90,44 +140,95 @@ func planDataStoreResourceChange(req providers.PlanResourceChangeRequest) (resp 
 	}
 
 	planned := req.ProposedNewState.AsValueMap()
+	prior := req.PriorState
 
-	input := req.ProposedNewState.GetAttr("input")
-	trigger := req.ProposedNewState.GetAttr("triggers_replace")
-
-	switch {
-	case req.PriorState.IsNull():
-		// Create
-		// Set the id value to unknown.
-		planned["id"] = cty.UnknownVal(cty.String).RefineNotNull()
-
-		// Output type must always match the input, even when it's null.
-		if input.IsNull() {
-			planned["output"] = input
-		} else {
-			planned["output"] = cty.UnknownVal(input.Type())
-		}
-
-		resp.PlannedState = cty.ObjectVal(planned)
-		return resp
-
-	case !req.PriorState.GetAttr("triggers_replace").RawEquals(trigger):
+	// first determine if this is a create or replace
+	if !prior.IsNull() && !prior.GetAttr("triggers_replace").RawEquals(req.ProposedNewState.GetAttr("triggers_replace")) {
 		// trigger changed, so we need to replace the entire instance
 		resp.RequiresReplace = append(resp.RequiresReplace, cty.GetAttrPath("triggers_replace"))
-		planned["id"] = cty.UnknownVal(cty.String).RefineNotNull()
 
-		// We need to check the input for the replacement instance to compute a
-		// new output.
-		if input.IsNull() {
-			planned["output"] = input
-		} else {
-			planned["output"] = cty.UnknownVal(input.Type())
-		}
-
-	case !req.PriorState.GetAttr("input").RawEquals(input):
-		// only input changed, so we only need to re-compute output
-		planned["output"] = cty.UnknownVal(input.Type())
+		// set the prior value to null so that that everything else is treated
+		// as if it's a new instance
+		prior = cty.NullVal(req.ProposedNewState.Type())
 	}
 
+	// creating a new instance, so we need a new ID
+	if prior.IsNull() {
+		// New instances, so set the id value to unknown.
+		planned["id"] = cty.UnknownVal(cty.String).RefineNotNull()
+	}
+
+	// check the input/output for changes
+	input := req.ProposedNewState.GetAttr("input")
+	priorInput := cty.NullVal(cty.DynamicPseudoType)
+	if !prior.IsNull() {
+		priorInput = prior.GetAttr("input")
+	}
+
+	if !priorInput.RawEquals(input) {
+		if input.IsNull() {
+			// we reflect the type even if the value is null
+			planned["output"] = cty.NullVal(input.Type())
+		} else {
+			// input changed, so we need to re-compute output
+			planned["output"] = cty.UnknownVal(input.Type())
+		}
+	}
+
+	// check the sensitive object for changes
+	proposedSensitiveInput := req.ProposedNewState.GetAttr("sensitive").GetAttr("input")
+	priorSensitiveInput := cty.NullVal(cty.DynamicPseudoType)
+	if !prior.IsNull() {
+		priorSensitiveInput = prior.GetAttr("sensitive").GetAttr("input")
+	}
+
+	if !proposedSensitiveInput.RawEquals(priorSensitiveInput) {
+		output := cty.NullVal(proposedSensitiveInput.Type())
+		if !proposedSensitiveInput.IsNull() {
+			// input changed, so we need to re-compute output
+			output = cty.UnknownVal(proposedSensitiveInput.Type())
+		}
+
+		planned["sensitive"] = cty.ObjectVal(map[string]cty.Value{
+			"input":  proposedSensitiveInput,
+			"output": output,
+		})
+	}
+
+	// check the write_only object for changes
+	writeOnly := req.ProposedNewState.GetAttr("write_only").AsValueMap()
+	priorWOTrigger := cty.NullVal(cty.DynamicPseudoType)
+	if !prior.IsNull() {
+		priorWOTrigger = prior.GetAttr("write_only").GetAttr("version")
+	}
+
+	// Plan an update if the version changed, or if the input and output don't
+	// match in the absence of a version value.
+	switch {
+	// if the input is null, then like the other input+output pairs output is
+	// also a known null during plan
+	case writeOnly["input"].IsNull():
+		writeOnly["output"] = cty.NullVal(writeOnly["input"].Type())
+
+	// if there is a version, checked if it has changed
+	case !writeOnly["version"].IsNull():
+		// The version value comparison is done within this case, because we
+		// don't want to fall into the input comparison case.
+		if !writeOnly["version"].RawEquals(priorWOTrigger) {
+			writeOnly["output"] = cty.UnknownVal(writeOnly["input"].Type())
+		}
+
+	// if there is no version, we automatically update if the input and output
+	// don't match
+	case !writeOnly["input"].RawEquals(writeOnly["output"]):
+		writeOnly["output"] = cty.UnknownVal(writeOnly["input"].Type())
+	}
+
+	// and the input must always be returned as the unset null value because it
+	// is write-only
+	writeOnly["input"] = cty.NullVal(cty.DynamicPseudoType)
+
+	planned["write_only"] = cty.ObjectVal(writeOnly)
 	resp.PlannedState = cty.ObjectVal(planned)
 	return resp
 }
@@ -140,11 +241,9 @@ func applyDataStoreResourceChange(req providers.ApplyResourceChangeRequest) (res
 		return resp
 	}
 
+	// The new state will be created from the PlannedState, by filling in the
+	// unknowns, and removing the write-only input attribute.
 	newState := req.PlannedState.AsValueMap()
-
-	if !req.PlannedState.GetAttr("output").IsKnown() {
-		newState["output"] = req.PlannedState.GetAttr("input")
-	}
 
 	if !req.PlannedState.GetAttr("id").IsKnown() {
 		idString, err := uuid.GenerateUUID()
@@ -167,6 +266,23 @@ func applyDataStoreResourceChange(req providers.ApplyResourceChangeRequest) (res
 
 		newState["id"] = cty.StringVal(idString)
 	}
+
+	if !req.PlannedState.GetAttr("output").IsKnown() {
+		newState["output"] = req.PlannedState.GetAttr("input")
+	}
+
+	sensitive := newState["sensitive"].AsValueMap()
+	if !sensitive["output"].IsKnown() {
+		sensitive["output"] = sensitive["input"]
+	}
+	newState["sensitive"] = cty.ObjectVal(sensitive)
+
+	writeOnly := newState["write_only"].AsValueMap()
+	if !writeOnly["output"].IsKnown() {
+		writeOnly["output"] = writeOnly["input"]
+	}
+	writeOnly["input"] = cty.NullVal(cty.DynamicPseudoType)
+	newState["write_only"] = cty.ObjectVal(writeOnly)
 
 	resp.NewState = cty.ObjectVal(newState)
 

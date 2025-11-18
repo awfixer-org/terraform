@@ -47,9 +47,6 @@ func TestManagedDataValidate(t *testing.T) {
 }
 
 func TestManagedDataUpgradeState(t *testing.T) {
-	schema := dataStoreResourceSchema()
-	ty := schema.Body.ImpliedType()
-
 	state := cty.ObjectVal(map[string]cty.Value{
 		"input":  cty.StringVal("input"),
 		"output": cty.StringVal("input"),
@@ -59,7 +56,12 @@ func TestManagedDataUpgradeState(t *testing.T) {
 		"id": cty.StringVal("not-quite-unique"),
 	})
 
-	jsState, err := ctyjson.Marshal(state, ty)
+	upgradedState, err := dataStoreResourceSchema().Body.CoerceValue(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	jsState, err := ctyjson.Marshal(state, cty.DynamicPseudoType)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +77,7 @@ func TestManagedDataUpgradeState(t *testing.T) {
 		t.Error("upgrade state error:", resp.Diagnostics.ErrWithWarnings())
 	}
 
-	if !resp.UpgradedState.RawEquals(state) {
+	if !resp.UpgradedState.RawEquals(upgradedState) {
 		t.Errorf("prior state was:\n%#v\nupgraded state is:\n%#v\n", state, resp.UpgradedState)
 	}
 }
@@ -135,12 +137,29 @@ func TestManagedDataPlan(t *testing.T) {
 				"output":           cty.NullVal(cty.DynamicPseudoType),
 				"triggers_replace": cty.NullVal(cty.DynamicPseudoType),
 				"id":               cty.NullVal(cty.String),
+				"sensitive": cty.ObjectVal(map[string]cty.Value{
+					"input":  cty.NullVal(cty.Number),
+					"output": cty.NullVal(cty.DynamicPseudoType),
+				}),
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":  cty.NullVal(cty.Number),
+					"output": cty.NullVal(cty.DynamicPseudoType),
+				}),
 			}),
 			planned: cty.ObjectVal(map[string]cty.Value{
 				"input":            cty.NullVal(cty.String),
 				"output":           cty.NullVal(cty.String),
 				"triggers_replace": cty.NullVal(cty.DynamicPseudoType),
 				"id":               cty.UnknownVal(cty.String).RefineNotNull(),
+				"sensitive": cty.ObjectVal(map[string]cty.Value{
+					"input":  cty.NullVal(cty.Number),
+					"output": cty.NullVal(cty.Number),
+				}),
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					// write-only values are always returned as null
+					"input":  cty.NullVal(cty.DynamicPseudoType),
+					"output": cty.NullVal(cty.Number),
+				}),
 			}),
 		},
 
@@ -166,18 +185,30 @@ func TestManagedDataPlan(t *testing.T) {
 				"output":           cty.StringVal("input"),
 				"triggers_replace": cty.NullVal(cty.DynamicPseudoType),
 				"id":               cty.StringVal("not-quite-unique"),
+				"sensitive": cty.ObjectVal(map[string]cty.Value{
+					"input":  cty.StringVal("input"),
+					"output": cty.StringVal("input"),
+				}),
 			}),
 			proposed: cty.ObjectVal(map[string]cty.Value{
 				"input":            cty.UnknownVal(cty.List(cty.String)),
 				"output":           cty.StringVal("input"),
 				"triggers_replace": cty.NullVal(cty.DynamicPseudoType),
 				"id":               cty.StringVal("not-quite-unique"),
+				"sensitive": cty.ObjectVal(map[string]cty.Value{
+					"input":  cty.UnknownVal(cty.List(cty.String)),
+					"output": cty.StringVal("input"),
+				}),
 			}),
 			planned: cty.ObjectVal(map[string]cty.Value{
 				"input":            cty.UnknownVal(cty.List(cty.String)),
 				"output":           cty.UnknownVal(cty.List(cty.String)),
 				"triggers_replace": cty.NullVal(cty.DynamicPseudoType),
 				"id":               cty.StringVal("not-quite-unique"),
+				"sensitive": cty.ObjectVal(map[string]cty.Value{
+					"input":  cty.UnknownVal(cty.List(cty.String)),
+					"output": cty.UnknownVal(cty.List(cty.String)),
+				}),
 			}),
 		},
 
@@ -228,24 +259,136 @@ func TestManagedDataPlan(t *testing.T) {
 				"id": cty.UnknownVal(cty.String).RefineNotNull(),
 			}),
 		},
+
+		"update-wo-trigger": {
+			prior: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":   cty.NullVal(cty.DynamicPseudoType),
+					"version": cty.NumberIntVal(1),
+					"output":  cty.StringVal("ephem"),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+			proposed: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":   cty.StringVal("ephem"),
+					"version": cty.NumberIntVal(2),
+					"output":  cty.StringVal("ephem"),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+			planned: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":   cty.NullVal(cty.DynamicPseudoType),
+					"version": cty.NumberIntVal(2),
+					"output":  cty.UnknownVal(cty.String),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+		},
+
+		"update-wo-auto": {
+			prior: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":  cty.NullVal(cty.DynamicPseudoType),
+					"output": cty.StringVal("ephem_2"),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+			proposed: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":  cty.StringVal("ephem_1"),
+					"output": cty.StringVal("ephem_2"),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+			planned: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":  cty.NullVal(cty.DynamicPseudoType),
+					"output": cty.UnknownVal(cty.String),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+		},
+
+		"no-update-wo-trigger": {
+			prior: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":   cty.NullVal(cty.DynamicPseudoType),
+					"version": cty.NumberIntVal(1),
+					"output":  cty.StringVal("ephem"),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+			proposed: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":   cty.StringVal("ephem 2"),
+					"version": cty.NumberIntVal(1),
+					"output":  cty.StringVal("ephem"),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+			planned: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":   cty.NullVal(cty.DynamicPseudoType),
+					"version": cty.NumberIntVal(1),
+					"output":  cty.StringVal("ephem"),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+		},
+
+		"no-update-wo-auto": {
+			prior: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":  cty.NullVal(cty.DynamicPseudoType),
+					"output": cty.StringVal("ephem_2"),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+			proposed: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":  cty.StringVal("ephem_2"),
+					"output": cty.StringVal("ephem_2"),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+			planned: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":  cty.NullVal(cty.DynamicPseudoType),
+					"output": cty.StringVal("ephem_2"),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+		},
 	} {
 		t.Run("plan-"+name, func(t *testing.T) {
 			req := providers.PlanResourceChangeRequest{
 				TypeName:         "terraform_data",
-				PriorState:       tc.prior,
-				ProposedNewState: tc.proposed,
+				PriorState:       mustCoerceManagedData(t, tc.prior),
+				ProposedNewState: mustCoerceManagedData(t, tc.proposed),
 			}
 
 			resp := planDataStoreResourceChange(req)
 			if resp.Diagnostics.HasErrors() {
 				t.Fatal(resp.Diagnostics.ErrWithWarnings())
 			}
+			expectedPlanned := mustCoerceManagedData(t, tc.planned)
 
-			if !resp.PlannedState.RawEquals(tc.planned) {
-				t.Errorf("expected:\n%#v\ngot:\n%#v\n", tc.planned, resp.PlannedState)
+			if !resp.PlannedState.RawEquals(expectedPlanned) {
+				t.Errorf("expected:\n%#v\ngot:\n%#v\n", expectedPlanned, resp.PlannedState)
 			}
 		})
 	}
+}
+
+func mustCoerceManagedData(t *testing.T, v cty.Value) cty.Value {
+	schema := dataStoreResourceSchema().Body
+	v, err := schema.CoerceValue(v)
+	if err != nil {
+		t.Fatalf("failed to coerce value: %s", err)
+	}
+	return v
 }
 
 func TestManagedDataApply(t *testing.T) {
@@ -364,12 +507,63 @@ func TestManagedDataApply(t *testing.T) {
 				"id": cty.StringVal("not-quite-unique"),
 			}),
 		},
+
+		"update-wo-trigger": {
+			prior: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":   cty.NullVal(cty.DynamicPseudoType),
+					"version": cty.NumberIntVal(1),
+					"output":  cty.StringVal("ephem"),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+			planned: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":   cty.StringVal("new_ephem"),
+					"version": cty.NumberIntVal(2),
+					"output":  cty.UnknownVal(cty.String),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+			state: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":   cty.NullVal(cty.DynamicPseudoType),
+					"version": cty.NumberIntVal(2),
+					"output":  cty.StringVal("new_ephem"),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+		},
+
+		"update-wo-auto": {
+			prior: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":  cty.NullVal(cty.DynamicPseudoType),
+					"output": cty.StringVal("ephem"),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+			planned: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":  cty.StringVal("new_ephem"),
+					"output": cty.UnknownVal(cty.String),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+			state: cty.ObjectVal(map[string]cty.Value{
+				"write_only": cty.ObjectVal(map[string]cty.Value{
+					"input":  cty.NullVal(cty.DynamicPseudoType),
+					"output": cty.StringVal("new_ephem"),
+				}),
+				"id": cty.StringVal("not-quite-unique"),
+			}),
+		},
 	} {
 		t.Run("apply-"+name, func(t *testing.T) {
 			req := providers.ApplyResourceChangeRequest{
 				TypeName:     "terraform_data",
-				PriorState:   tc.prior,
-				PlannedState: tc.planned,
+				PriorState:   mustCoerceManagedData(t, tc.prior),
+				PlannedState: mustCoerceManagedData(t, tc.planned),
 			}
 
 			resp := applyDataStoreResourceChange(req)
@@ -377,8 +571,10 @@ func TestManagedDataApply(t *testing.T) {
 				t.Fatal(resp.Diagnostics.ErrWithWarnings())
 			}
 
-			if !resp.NewState.RawEquals(tc.state) {
-				t.Errorf("expected:\n%#v\ngot:\n%#v\n", tc.state, resp.NewState)
+			expected := mustCoerceManagedData(t, tc.state)
+
+			if !resp.NewState.RawEquals(expected) {
+				t.Errorf("expected:\n%#v\ngot:\n%#v\n", expected, resp.NewState)
 			}
 		})
 	}
@@ -409,12 +605,14 @@ func TestMoveDataStoreResourceState_Id(t *testing.T) {
 		t.Errorf("unexpected diagnostics: %s", resp.Diagnostics.Err())
 	}
 
-	expectedTargetState := cty.ObjectVal(map[string]cty.Value{
-		"id":               cty.StringVal("test"),
-		"input":            cty.NullVal(cty.DynamicPseudoType),
-		"output":           cty.NullVal(cty.DynamicPseudoType),
-		"triggers_replace": cty.NullVal(cty.DynamicPseudoType),
-	})
+	expected, err := dataStoreResourceSchema().Body.CoerceValue(cty.EmptyObjectVal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedMap := expected.AsValueMap()
+
+	expectedMap["id"] = cty.StringVal("test")
+	expectedTargetState := cty.ObjectVal(expectedMap)
 
 	if !resp.TargetState.RawEquals(expectedTargetState) {
 		t.Errorf("expected state was:\n%#v\ngot state is:\n%#v\n", expectedTargetState, resp.TargetState)
@@ -475,14 +673,17 @@ func TestMoveDataStoreResourceState_Triggers(t *testing.T) {
 		t.Errorf("unexpected diagnostics: %s", resp.Diagnostics.Err())
 	}
 
-	expectedTargetState := cty.ObjectVal(map[string]cty.Value{
-		"id":     cty.StringVal("test"),
-		"input":  cty.NullVal(cty.DynamicPseudoType),
-		"output": cty.NullVal(cty.DynamicPseudoType),
-		"triggers_replace": cty.ObjectVal(map[string]cty.Value{
-			"testkey": cty.StringVal("testvalue"),
-		}),
+	expected, err := dataStoreResourceSchema().Body.CoerceValue(cty.EmptyObjectVal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedMap := expected.AsValueMap()
+
+	expectedMap["id"] = cty.StringVal("test")
+	expectedMap["triggers_replace"] = cty.ObjectVal(map[string]cty.Value{
+		"testkey": cty.StringVal("testvalue"),
 	})
+	expectedTargetState := cty.ObjectVal(expectedMap)
 
 	if !resp.TargetState.RawEquals(expectedTargetState) {
 		t.Errorf("expected state was:\n%#v\ngot state is:\n%#v\n", expectedTargetState, resp.TargetState)
