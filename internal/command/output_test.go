@@ -4,6 +4,7 @@
 package command
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,7 +13,9 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/hashicorp/terraform/internal/addrs"
+	"github.com/hashicorp/terraform/internal/providers"
 	"github.com/hashicorp/terraform/internal/states"
+	"github.com/hashicorp/terraform/internal/states/statefile"
 )
 
 func TestOutput(t *testing.T) {
@@ -59,18 +62,43 @@ func TestOutput_stateStore(t *testing.T) {
 		)
 	})
 
-	statePath := testStateFile(t, originalState)
+	// Create a temporary working directory that is empty
+	td := t.TempDir()
+	testCopyDir(t, testFixturePath("state-store-unchanged"), td)
+	t.Chdir(td)
+
+	// Get bytes describing the state
+	var stateBuf bytes.Buffer
+	if err := statefile.Write(statefile.New(originalState, "", 1), &stateBuf); err != nil {
+		t.Fatalf("error during test setup: %s", err)
+	}
+
+	// Create a mock that contains a persisted "default" state that uses the bytes from above.
+	mockProvider := mockPluggableStateStorageProvider(t)
+	mockProvider.MockStates = map[string]interface{}{
+		"default": stateBuf.Bytes(),
+	}
+	mockProviderAddress := addrs.NewDefaultProvider("test")
+	providerSource, close := newMockProviderSource(t, map[string][]string{
+		"hashicorp/test": {"1.0.0"},
+	})
+	defer close()
 
 	view, done := testView(t)
 	c := &OutputCommand{
 		Meta: Meta{
-			testingOverrides: metaOverridesForProvider(testProvider()),
-			View:             view,
+			AllowExperimentalFeatures: true,
+			testingOverrides: &testingOverrides{
+				Providers: map[addrs.Provider]providers.Factory{
+					mockProviderAddress: providers.FactoryFixed(mockProvider),
+				},
+			},
+			ProviderSource: providerSource,
+			View:           view,
 		},
 	}
 
 	args := []string{
-		"-state", statePath,
 		"foo",
 	}
 	code := c.Run(args)
