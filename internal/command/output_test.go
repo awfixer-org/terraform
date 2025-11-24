@@ -50,6 +50,41 @@ func TestOutput(t *testing.T) {
 	}
 }
 
+func TestOutput_stateStore(t *testing.T) {
+	originalState := states.BuildState(func(s *states.SyncState) {
+		s.SetOutputValue(
+			addrs.OutputValue{Name: "foo"}.Absolute(addrs.RootModuleInstance),
+			cty.StringVal("bar"),
+			false,
+		)
+	})
+
+	statePath := testStateFile(t, originalState)
+
+	view, done := testView(t)
+	c := &OutputCommand{
+		Meta: Meta{
+			testingOverrides: metaOverridesForProvider(testProvider()),
+			View:             view,
+		},
+	}
+
+	args := []string{
+		"-state", statePath,
+		"foo",
+	}
+	code := c.Run(args)
+	output := done(t)
+	if code != 0 {
+		t.Fatalf("bad: \n%s", output.Stderr())
+	}
+
+	actual := strings.TrimSpace(output.Stdout())
+	if actual != `"bar"` {
+		t.Fatalf("bad: %#v", actual)
+	}
+}
+
 func TestOutput_json(t *testing.T) {
 	originalState := states.BuildState(func(s *states.SyncState) {
 		s.SetOutputValue(
