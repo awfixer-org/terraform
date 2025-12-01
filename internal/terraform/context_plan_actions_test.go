@@ -4,6 +4,7 @@
 package terraform
 
 import (
+	"fmt"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -4006,29 +4007,29 @@ resource "test_object" "b" {
 			"don't trigger during create or update": {
 				module: map[string]string{
 					"main.tf": `
-action "test_action" "hello" {}
-resource "test_object" "a" {
-			name = "a"
-			
-			lifecycle {
-				action_trigger {
-					events = [before_destroy]
-					actions = [action.test_action.hello]
-				}
+			action "test_action" "hello" {}
+			resource "test_object" "a" {
+						name = "a"
+
+						lifecycle {
+							action_trigger {
+								events = [before_destroy]
+								actions = [action.test_action.hello]
+							}
+						}
 			}
-}
-action "test_action" "world" {}
-resource "test_object" "b" {
-			name = "b"
-			
-			lifecycle {
-				action_trigger {
-					events = [after_destroy]
-					actions = [action.test_action.hello]
-				}
+			action "test_action" "world" {}
+			resource "test_object" "b" {
+						name = "b"
+
+						lifecycle {
+							action_trigger {
+								events = [after_destroy]
+								actions = [action.test_action.hello]
+							}
+						}
 			}
-}
-					`,
+								`,
 				},
 				expectPlanActionCalled: false,
 				buildState: func(s *states.SyncState) {
@@ -4042,23 +4043,22 @@ resource "test_object" "b" {
 			"replace - after_destroy triggers before before_create": {
 				module: map[string]string{
 					"main.tf": `
-action "test_action" "hello" {}
-action "test_action" "world" {}
-resource "test_object" "a" {
-  lifecycle {
-   action_trigger {
-      events = [before_create]
-      actions = [action.test_action.world]
-    }
-    action_trigger {
-      events = [after_destroy]
-      actions = [action.test_action.hello]
-    }
-  }
-}
-`,
+			action "test_action" "hello" {}
+			action "test_action" "world" {}
+			resource "test_object" "a" {
+			  lifecycle {
+			   action_trigger {
+			      events = [before_create]
+			      actions = [action.test_action.world]
+			    }
+			    action_trigger {
+			      events = [after_destroy]
+			      actions = [action.test_action.hello]
+			    }
+			  }
+			}
+			`,
 				},
-
 				buildState: func(s *states.SyncState) {
 					addr := mustResourceInstanceAddr("test_object.a")
 					s.SetResourceInstanceCurrent(addr, &states.ResourceInstanceObjectSrc{
@@ -4071,6 +4071,8 @@ resource "test_object" "a" {
 					if len(p.Changes.ActionInvocations) != 2 {
 						t.Fatalf("expected 2 action invocations, got %d", len(p.Changes.ActionInvocations))
 					}
+					fmt.Printf("\n\t p.Changes.ActionInvocations[0].Addr.String() --> %#v\n", p.Changes.ActionInvocations[0].Addr.String())
+					fmt.Printf("\n\t p.Changes.ActionInvocations[1].Addr.String() --> %#v\n", p.Changes.ActionInvocations[1].Addr.String())
 					// The first triggered action should be the after_destroy
 					if p.Changes.ActionInvocations[0].Addr.String() != "action.test_action.hello" {
 						t.Fatalf("expected first action to be 'action.test_action.hello', got %s", p.Changes.ActionInvocations[0].Addr.String())
@@ -4081,29 +4083,30 @@ resource "test_object" "a" {
 					}
 				},
 			},
+
 			"replace - before_destroy triggers before before_create and before after_destroy": {
 				module: map[string]string{
 					"main.tf": `
-action "test_action" "hi" {}
-action "test_action" "hello" {}
-action "test_action" "world" {}
-resource "test_object" "a" {
-  lifecycle {
-    action_trigger {
-      events = [before_create]
-      actions = [action.test_action.world]
-    }
-    action_trigger {
-      events = [after_destroy]
-      actions = [action.test_action.hello]
-    }
-    action_trigger {
-      events = [before_destroy]
-      actions = [action.test_action.hi]
-    }
-  }
-}
-`,
+			action "test_action" "hi" {}
+			action "test_action" "hello" {}
+			action "test_action" "world" {}
+			resource "test_object" "a" {
+			  lifecycle {
+			    action_trigger {
+			      events = [before_create]
+			      actions = [action.test_action.world]
+			    }
+			    action_trigger {
+			      events = [after_destroy]
+			      actions = [action.test_action.hello]
+			    }
+			    action_trigger {
+			      events = [before_destroy]
+			      actions = [action.test_action.hi]
+			    }
+			  }
+			}
+			`,
 				},
 
 				buildState: func(s *states.SyncState) {
@@ -4136,27 +4139,27 @@ resource "test_object" "a" {
 			"replace with create_before_destroy - before_create and after_create trigger before before_destroy triggers": {
 				module: map[string]string{
 					"main.tf": `
-action "test_action" "hi" {}
-action "test_action" "hello" {}
-action "test_action" "world" {}
-resource "test_object" "a" {
-  lifecycle {
-    create_before_destroy = true
-    action_trigger {
-      events = [before_destroy]
-      actions = [action.test_action.world]
-    }
-    action_trigger {
-      events = [after_create]
-      actions = [action.test_action.hello]
-    }
-    action_trigger {
-      events = [before_create]
-      actions = [action.test_action.hi]
-    }
-  }
-}
-`,
+			action "test_action" "hi" {}
+			action "test_action" "hello" {}
+			action "test_action" "world" {}
+			resource "test_object" "a" {
+			  lifecycle {
+			    create_before_destroy = true
+			    action_trigger {
+			      events = [before_destroy]
+			      actions = [action.test_action.world]
+			    }
+			    action_trigger {
+			      events = [after_create]
+			      actions = [action.test_action.hello]
+			    }
+			    action_trigger {
+			      events = [before_create]
+			      actions = [action.test_action.hi]
+			    }
+			  }
+			}
+			`,
 				},
 
 				buildState: func(s *states.SyncState) {
@@ -4189,16 +4192,17 @@ resource "test_object" "a" {
 			"destroy - triggers destroy actions": {
 				module: map[string]string{
 					"main.tf": `
-action "test_action" "hello" {}
-resource "test_object" "a" {
-  lifecycle {
-    action_trigger {
-      events = [after_destroy]
-      actions = [action.test_action.hello]
-    }
-  }
-}
-`,
+			action "test_action" "hello" {}
+			resource "test_object" "a" {
+			  name = "name"
+			  lifecycle {
+			    action_trigger {
+			      events = [after_destroy]
+			      actions = [action.test_action.hello]
+			    }
+			  }
+			}
+			`,
 				},
 
 				planOpts: &PlanOpts{
@@ -4207,7 +4211,7 @@ resource "test_object" "a" {
 				buildState: func(s *states.SyncState) {
 					addr := mustResourceInstanceAddr("test_object.a")
 					s.SetResourceInstanceCurrent(addr, &states.ResourceInstanceObjectSrc{
-						AttrsJSON: []byte(`{"name":"previous_run"}`),
+						AttrsJSON: []byte(`{"name":"name"}`),
 						Status:    states.ObjectReady,
 					}, mustProviderConfig(`provider["registry.terraform.io/hashicorp/test"]`))
 				},
@@ -4225,16 +4229,16 @@ resource "test_object" "a" {
 			"forget - don't trigger destroy actions": {
 				module: map[string]string{
 					"main.tf": `
-action "test_action" "hello" {}
-resource "test_object" "a" {
-  lifecycle {
-    action_trigger {
-      events = [after_destroy]
-      actions = [action.test_action.hello]
-    }
-  }
-}
-`,
+			action "test_action" "hello" {}
+			resource "test_object" "a" {
+			  lifecycle {
+			    action_trigger {
+			      events = [after_destroy]
+			      actions = [action.test_action.hello]
+			    }
+			  }
+			}
+			`,
 				},
 
 				planOpts: &PlanOpts{
@@ -4259,18 +4263,18 @@ resource "test_object" "a" {
 			"removing an instance triggers destroy actions": {
 				module: map[string]string{
 					"main.tf": `
-action "test_action" "hello" {}
-resource "test_object" "a" {
-  name = "instance"
-  count = 1
-  lifecycle {
-    action_trigger {
-      events = [after_destroy]
-      actions = [action.test_action.hello]
-    }
-  }
-}
-`,
+			action "test_action" "hello" {}
+			resource "test_object" "a" {
+			  name = "instance"
+			  count = 1
+			  lifecycle {
+			    action_trigger {
+			      events = [after_destroy]
+			      actions = [action.test_action.hello]
+			    }
+			  }
+			}
+			`,
 				},
 
 				buildState: func(s *states.SyncState) {
@@ -4307,18 +4311,18 @@ resource "test_object" "a" {
 			"removed block - does trigger destroy actions": {
 				module: map[string]string{
 					"main.tf": `
-action "test_action" "hello" {}
+			action "test_action" "hello" {}
 
-removed {
-  from = "test_object.a"
-  lifecycle {
-    action_trigger {
-        events = [after_destroy]
-        actions = [action.test_action.hello]
-    }
-  }
-}
-`,
+			removed {
+			  from = "test_object.a"
+			  lifecycle {
+			    action_trigger {
+			        events = [after_destroy]
+			        actions = [action.test_action.hello]
+			    }
+			  }
+			}
+			`,
 				},
 
 				buildState: func(s *states.SyncState) {
@@ -4342,19 +4346,19 @@ removed {
 			"removed block with destroy set to false - does not trigger destroy actions": {
 				module: map[string]string{
 					"main.tf": `
-action "test_action" "hello" {}
+			action "test_action" "hello" {}
 
-removed {
-  from = "test_object.a"
-  lifecycle {
-    destroy = true
-    action_trigger {
-        events = [after_destroy]
-        actions = [action.test_action.hello]
-    }
-  }
-}
-`,
+			removed {
+			  from = "test_object.a"
+			  lifecycle {
+			    destroy = true
+			    action_trigger {
+			        events = [after_destroy]
+			        actions = [action.test_action.hello]
+			    }
+			  }
+			}
+			`,
 				},
 
 				buildState: func(s *states.SyncState) {
@@ -4375,21 +4379,21 @@ removed {
 			"before_destroy actions can access the triggering resource": {
 				module: map[string]string{
 					"main.tf": `
-action "test_action" "hello" {
-  config {
-    attr = test_object.a.name
-  }
-}
-resource "test_object" "a" {
-  name = "instance"
-  lifecycle {
-    action_trigger {
-      events = [before_destroy]
-      actions = [action.test_action.hello]
-    }
-  }
-}
-`,
+			action "test_action" "hello" {
+			  config {
+			    attr = test_object.a.name
+			  }
+			}
+			resource "test_object" "a" {
+			  name = "instance"
+			  lifecycle {
+			    action_trigger {
+			      events = [before_destroy]
+			      actions = [action.test_action.hello]
+			    }
+			  }
+			}
+			`,
 				},
 
 				planOpts: &PlanOpts{
@@ -4423,23 +4427,23 @@ resource "test_object" "a" {
 			"before_destroy actions can access the triggering resource instance": {
 				module: map[string]string{
 					"main.tf": `
-action "test_action" "hello" {
-  count = 1
-  config {
-    attr = test_object.a[count.index].name
-  }
-}
-resource "test_object" "a" {
-  count = 1
-  name = "instance#{count.index}"
-  lifecycle {
-    action_trigger {
-      events = [before_destroy]
-      actions = [action.test_action.hello[count.index]]
-    }
-  }
-}
-`,
+			action "test_action" "hello" {
+			  count = 1
+			  config {
+			    attr = test_object.a[count.index].name
+			  }
+			}
+			resource "test_object" "a" {
+			  count = 1
+			  name = "instance#{count.index}"
+			  lifecycle {
+			    action_trigger {
+			      events = [before_destroy]
+			      actions = [action.test_action.hello[count.index]]
+			    }
+			  }
+			}
+			`,
 				},
 
 				planOpts: &PlanOpts{
@@ -4473,21 +4477,21 @@ resource "test_object" "a" {
 			"after_destroy actions can access the triggering resource": {
 				module: map[string]string{
 					"main.tf": `
-action "test_action" "hello" {
-  config {
-    attr = test_object.a.name
-  }
-}
-resource "test_object" "a" {
-  name = "instance"
-  lifecycle {
-    action_trigger {
-      events = [after_destroy]
-      actions = [action.test_action.hello]
-    }
-  }
-}
-`,
+			action "test_action" "hello" {
+			  config {
+			    attr = test_object.a.name
+			  }
+			}
+			resource "test_object" "a" {
+			  name = "instance"
+			  lifecycle {
+			    action_trigger {
+			      events = [after_destroy]
+			      actions = [action.test_action.hello]
+			    }
+			  }
+			}
+			`,
 				},
 
 				planOpts: &PlanOpts{
@@ -4521,23 +4525,23 @@ resource "test_object" "a" {
 			"after_destroy actions can access the triggering resource instance": {
 				module: map[string]string{
 					"main.tf": `
-action "test_action" "hello" {
-  count = 1
-  config {
-    attr = test_object.a[count.index].name
-  }
-}
-resource "test_object" "a" {
-  count = 1
-  name = "instance#{count.index}"
-  lifecycle {
-    action_trigger {
-      events = [after_destroy]
-      actions = [action.test_action.hello[count.index]]
-    }
-  }
-}
-`,
+			action "test_action" "hello" {
+			  count = 1
+			  config {
+			    attr = test_object.a[count.index].name
+			  }
+			}
+			resource "test_object" "a" {
+			  count = 1
+			  name = "instance#{count.index}"
+			  lifecycle {
+			    action_trigger {
+			      events = [after_destroy]
+			      actions = [action.test_action.hello[count.index]]
+			    }
+			  }
+			}
+			`,
 				},
 
 				planOpts: &PlanOpts{
@@ -4571,24 +4575,24 @@ resource "test_object" "a" {
 			"after_destroy actions can not access other resources than the triggering resource": {
 				module: map[string]string{
 					"main.tf": `
-action "test_action" "hello" {
-  config {
-    attr = test_object.a.name + test_object.forbidden.name
-  }
-}
-resource "test_object" "a" {
-  name = "instance"
-  lifecycle {
-    action_trigger {
-      events = [after_destroy]
-      actions = [action.test_action.hello]
-    }
-  }
-}
-resource "test_object" "forbidden" {
-    name = "you-should-not-access-me"
-}
-`,
+			action "test_action" "hello" {
+			  config {
+			    attr = test_object.a.name + test_object.forbidden.name
+			  }
+			}
+			resource "test_object" "a" {
+			  name = "instance"
+			  lifecycle {
+			    action_trigger {
+			      events = [after_destroy]
+			      actions = [action.test_action.hello]
+			    }
+			  }
+			}
+			resource "test_object" "forbidden" {
+			    name = "you-should-not-access-me"
+			}
+			`,
 				},
 
 				planOpts: &PlanOpts{
@@ -4613,24 +4617,24 @@ resource "test_object" "forbidden" {
 			"before_destroy actions can not access other resources than the triggering resource": {
 				module: map[string]string{
 					"main.tf": `
-action "test_action" "hello" {
-  config {
-    attr = test_object.a.name + test_object.forbidden.name
-  }
-}
-resource "test_object" "a" {
-  name = "instance"
-  lifecycle {
-    action_trigger {
-      events = [before_destroy]
-      actions = [action.test_action.hello]
-    }
-  }
-}
-resource "test_object" "forbidden" {
-    name = "you-should-not-access-me"
-}
-`,
+			action "test_action" "hello" {
+			  config {
+			    attr = test_object.a.name + test_object.forbidden.name
+			  }
+			}
+			resource "test_object" "a" {
+			  name = "instance"
+			  lifecycle {
+			    action_trigger {
+			      events = [before_destroy]
+			      actions = [action.test_action.hello]
+			    }
+			  }
+			}
+			resource "test_object" "forbidden" {
+			    name = "you-should-not-access-me"
+			}
+			`,
 				},
 
 				planOpts: &PlanOpts{
