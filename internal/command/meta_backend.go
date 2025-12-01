@@ -343,6 +343,7 @@ func (m *Meta) BackendForLocalPlan(settings plans.Backend) (backendrun.Operation
 		diags = diags.Append(&errWrongWorkspaceForPlan{
 			currentWorkspace: w,
 			plannedWorkspace: settings.Workspace,
+			isCloud:          settings.Type == "cloud",
 		})
 		return nil, diags
 	}
