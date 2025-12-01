@@ -206,8 +206,9 @@ func TestLocal_planOutputsChanged(t *testing.T) {
 	}
 	op.PlanOutBackend = &plans.Backend{
 		// Just a placeholder so that we can generate a valid plan file.
-		Type:   "local",
-		Config: cfgRaw,
+		Type:      "local",
+		Config:    cfgRaw,
+		Workspace: "default",
 	}
 	run, err := b.Operation(context.Background(), op)
 	if err != nil {
@@ -262,8 +263,9 @@ func TestLocal_planModuleOutputsChanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	op.PlanOutBackend = &plans.Backend{
-		Type:   "local",
-		Config: cfgRaw,
+		Type:      "local",
+		Config:    cfgRaw,
+		Workspace: "default",
 	}
 	run, err := b.Operation(context.Background(), op)
 	if err != nil {
@@ -304,8 +306,9 @@ func TestLocal_planTainted(t *testing.T) {
 	}
 	op.PlanOutBackend = &plans.Backend{
 		// Just a placeholder so that we can generate a valid plan file.
-		Type:   "local",
-		Config: cfgRaw,
+		Type:      "local",
+		Config:    cfgRaw,
+		Workspace: "default",
 	}
 	run, err := b.Operation(context.Background(), op)
 	if err != nil {
@@ -383,8 +386,9 @@ func TestLocal_planDeposedOnly(t *testing.T) {
 	}
 	op.PlanOutBackend = &plans.Backend{
 		// Just a placeholder so that we can generate a valid plan file.
-		Type:   "local",
-		Config: cfgRaw,
+		Type:      "local",
+		Config:    cfgRaw,
+		Workspace: "default",
 	}
 	run, err := b.Operation(context.Background(), op)
 	if err != nil {
@@ -474,8 +478,9 @@ func TestLocal_planTainted_createBeforeDestroy(t *testing.T) {
 	}
 	op.PlanOutBackend = &plans.Backend{
 		// Just a placeholder so that we can generate a valid plan file.
-		Type:   "local",
-		Config: cfgRaw,
+		Type:      "local",
+		Config:    cfgRaw,
+		Workspace: "default",
 	}
 	run, err := b.Operation(context.Background(), op)
 	if err != nil {
@@ -565,8 +570,9 @@ func TestLocal_planDestroy(t *testing.T) {
 	}
 	op.PlanOutBackend = &plans.Backend{
 		// Just a placeholder so that we can generate a valid plan file.
-		Type:   "local",
-		Config: cfgRaw,
+		Type:      "local",
+		Config:    cfgRaw,
+		Workspace: "default",
 	}
 
 	run, err := b.Operation(context.Background(), op)
@@ -617,8 +623,9 @@ func TestLocal_planDestroy_withDataSources(t *testing.T) {
 	}
 	op.PlanOutBackend = &plans.Backend{
 		// Just a placeholder so that we can generate a valid plan file.
-		Type:   "local",
-		Config: cfgRaw,
+		Type:      "local",
+		Config:    cfgRaw,
+		Workspace: "default",
 	}
 
 	run, err := b.Operation(context.Background(), op)
@@ -689,8 +696,9 @@ func TestLocal_planOutPathNoChange(t *testing.T) {
 	}
 	op.PlanOutBackend = &plans.Backend{
 		// Just a placeholder so that we can generate a valid plan file.
-		Type:   "local",
-		Config: cfgRaw,
+		Type:      "local",
+		Config:    cfgRaw,
+		Workspace: "default",
 	}
 	op.PlanRefresh = true
 
