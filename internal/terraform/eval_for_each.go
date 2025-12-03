@@ -326,20 +326,11 @@ func (ev *forEachEvaluator) validateResourceOrActionForEach(forEachVal cty.Value
 			Extra:       diagnosticCausedBySensitive(true),
 		})
 	}
-	if marks.Has(forEachVal, marks.Deprecation) {
-		deprecationMarks := marks.GetDeprecationMarks(forEachVal)
-		for _, depMark := range deprecationMarks {
-			diags = diags.Append(&hcl.Diagnostic{
-				Severity:    hcl.DiagWarning,
-				Summary:     "Deprecated value used as for_each argument",
-				Detail:      depMark.Message,
-				Subject:     ev.expr.Range().Ptr(),
-				Expression:  ev.expr,
-				EvalContext: ev.hclCtx,
-			})
-		}
 
-	}
+	// We don't care about the returned value here, only the diagnostics
+	_, deprecationDiags := ev.ctx.Deprecations().Validate(forEachVal, ev.ctx.Path().Module(), ev.expr.Range().Ptr())
+
+	diags = diags.Append(deprecationDiags)
 
 	diags = diags.Append(ev.ensureNotEphemeral(forEachVal))
 

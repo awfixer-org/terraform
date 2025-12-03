@@ -19,7 +19,6 @@ import (
 	"github.com/hashicorp/terraform/internal/lang/ephemeral"
 	"github.com/hashicorp/terraform/internal/lang/format"
 	"github.com/hashicorp/terraform/internal/lang/langrefs"
-	"github.com/hashicorp/terraform/internal/lang/marks"
 	"github.com/hashicorp/terraform/internal/providers"
 	"github.com/hashicorp/terraform/internal/provisioners"
 	"github.com/hashicorp/terraform/internal/tfdiags"
@@ -366,7 +365,7 @@ func (n *NodeValidatableResource) validateResource(ctx EvalContext) tfdiags.Diag
 		diags = diags.Append(
 			validateResourceForbiddenEphemeralValues(ctx, configVal, schema.Body).InConfigBody(n.Config.Config, n.Addr.String()),
 		)
-		diags = diags.Append(validateConfigUsingDeprecatedValues(configVal).InConfigBody(n.Config.Config, n.Addr.String()))
+		diags = diags.Append(ctx.Deprecations().ValidateAsConfig(configVal, ctx.Path().Module()).InConfigBody(n.Config.Config, n.Addr.String()))
 
 		if n.Config.Managed != nil { // can be nil only in tests with poorly-configured mocks
 			for _, traversal := range n.Config.Managed.IgnoreChanges {
@@ -446,7 +445,7 @@ func (n *NodeValidatableResource) validateResource(ctx EvalContext) tfdiags.Diag
 		diags = diags.Append(
 			validateResourceForbiddenEphemeralValues(ctx, configVal, schema.Body).InConfigBody(n.Config.Config, n.Addr.String()),
 		)
-		diags = diags.Append(validateConfigUsingDeprecatedValues(configVal))
+		diags = diags.Append(ctx.Deprecations().ValidateAsConfig(configVal, ctx.Path().Module()))
 
 		// Use unmarked value for validate request
 		unmarkedConfigVal, _ := configVal.UnmarkDeep()
@@ -482,7 +481,7 @@ func (n *NodeValidatableResource) validateResource(ctx EvalContext) tfdiags.Diag
 		}
 
 		resp := provider.ValidateEphemeralResourceConfig(req)
-		diags = diags.Append(validateConfigUsingDeprecatedValues(configVal))
+		diags = diags.Append(ctx.Deprecations().ValidateAsConfig(configVal, ctx.Path().Module()))
 		diags = diags.Append(resp.Diagnostics.InConfigBody(n.Config.Config, n.Addr.String()))
 	case addrs.ListResourceMode:
 		schema := providerSchema.SchemaForListResourceType(n.Config.Type)
@@ -501,21 +500,21 @@ func (n *NodeValidatableResource) validateResource(ctx EvalContext) tfdiags.Diag
 		if valDiags.HasErrors() {
 			return diags
 		}
-		diags = diags.Append(validateConfigUsingDeprecatedValues(blockVal))
+		diags = diags.Append(ctx.Deprecations().ValidateAsConfig(blockVal, ctx.Path().Module()))
 
 		limit, _, limitDiags := newLimitEvaluator(true).EvaluateExpr(ctx, n.Config.List.Limit)
 		diags = diags.Append(limitDiags)
 		if limitDiags.HasErrors() {
 			return diags
 		}
-		diags = diags.Append(validateConfigUsingDeprecatedValues(limit))
+		diags = diags.Append(ctx.Deprecations().ValidateAsConfig(limit, ctx.Path().Module()))
 
 		includeResource, _, includeDiags := newIncludeRscEvaluator(true).EvaluateExpr(ctx, n.Config.List.IncludeResource)
 		diags = diags.Append(includeDiags)
 		if includeDiags.HasErrors() {
 			return diags
 		}
-		diags = diags.Append(validateConfigUsingDeprecatedValues(includeResource))
+		diags = diags.Append(ctx.Deprecations().ValidateAsConfig(includeResource, ctx.Path().Module()))
 
 		// Use unmarked value for validate request
 		unmarkedBlockVal, _ := blockVal.UnmarkDeep()
@@ -898,25 +897,6 @@ func validateResourceForbiddenEphemeralValues(ctx EvalContext, value cty.Value, 
 				fmt.Sprintf("Ephemeral values are not valid for %q, because it is not a write-only attribute and must be persisted to state.", strings.TrimPrefix(format.CtyPath(path), ".")),
 				path,
 			))
-		}
-	}
-	return diags
-}
-
-func validateConfigUsingDeprecatedValues(config cty.Value) (diags tfdiags.Diagnostics) {
-	_, pvms := config.UnmarkDeepWithPaths()
-	for _, pvm := range pvms {
-		for m := range pvm.Marks {
-			if depMark, ok := m.(marks.DeprecationMark); ok {
-				diags = diags.Append(
-					tfdiags.AttributeValue(
-						tfdiags.Warning,
-						"Deprecated value used",
-						depMark.Message,
-						pvm.Path,
-					),
-				)
-			}
 		}
 	}
 	return diags

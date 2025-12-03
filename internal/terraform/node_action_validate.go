@@ -102,7 +102,7 @@ func (n *NodeValidatableAction) Execute(ctx EvalContext, _ walkOperation) tfdiag
 		}
 	}
 
-	diags = diags.Append(validateConfigUsingDeprecatedValues(configVal).InConfigBody(n.Config.Config, n.Addr.String()))
+	diags = diags.Append(ctx.Deprecations().ValidateAsConfig(configVal, ctx.Path().Module()).InConfigBody(n.Config.Config, n.Addr.String()))
 
 	valDiags = validateResourceForbiddenEphemeralValues(ctx, configVal, schema.ConfigSchema)
 	diags = diags.Append(valDiags.InConfigBody(config, n.Addr.String()))
